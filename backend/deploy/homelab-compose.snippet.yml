@@ -1,0 +1,37 @@
+# Paste this service into your homelab docker-compose.yml (same file as postgres/minio/caddy).
+# Place the Gup backend build context next to that compose file, e.g.:
+#   ~/homelab/
+#     docker-compose.yml
+#     .env                  # shared or use env_file below
+#     gup-backend/          # copy of this repo's backend/ (Dockerfile + source)
+#       Dockerfile
+#       pom.xml
+#       src/
+#       .env                # Gup-only secrets (JWT, DB_*, S3_*)
+#
+# Then: docker compose up -d --build gup-backend
+
+  gup-backend:
+    build:
+      context: ./gup-backend
+      dockerfile: Dockerfile
+    image: gup-backend:latest
+    container_name: gup-backend
+    restart: unless-stopped
+    env_file:
+      - ./gup-backend/.env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # Service DNS name on the homelab network — NOT localhost, NOT homelab-postgres-1
+      # (compose still resolves "postgres"; the *-1 name is just the container hostname)
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-bakbak}?sslmode=disable
+      DB_USER: ${POSTGRES_USER}
+      DB_PASS: ${POSTGRES_PASSWORD}
+    depends_on:
+      - postgres
+    # No host ports: Caddy reaches it as http://gup-backend:8080 on the internal network.
+    # For a quick smoke test from the host only, temporarily add:
+    #   ports:
+    #     - "127.0.0.1:8081:8080"
+    networks:
+      - homelab

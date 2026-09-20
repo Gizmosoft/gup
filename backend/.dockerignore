@@ -1,0 +1,19 @@
+# Build context noise — keep image builds fast and secret-free.
+target/
+.git/
+.gitattributes
+.vscode/
+.DS_Store
+*.md
+clients/
+minio/
+
+# Local secrets / env — inject at `docker run` / compose, never bake into the image.
+.env
+.env.*
+!.env.example
+
+# Maven / IDE leftovers
+.mvn/timing.properties
+*.log
+logs/

@@ -1,0 +1,35 @@
+# Production-oriented reference for running Gup API beside an existing homelab stack.
+#
+# Preferred: merge deploy/homelab-compose.snippet.yml into your remote
+# docker-compose.yml (same network as postgres). This file is for a
+# standalone compose that joins that network as external.
+#
+#   docker network ls | grep homelab
+#   docker compose --env-file .env up -d --build
+
+services:
+  gup-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gup-backend:latest
+    container_name: gup-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+    # Optional local smoke-test only — prefer Caddy reverse_proxy in production:
+    ports:
+      - "127.0.0.1:8081:8080"
+    networks:
+      - homelab
+
+networks:
+  homelab:
+    external: true
+    # If your compose project name is "homelab", the network is usually:
+    #   homelab_homelab
+    # Override: docker compose -f docker-compose.yml up
+    #   or set name explicitly below after checking `docker network ls`
+    # name: homelab_homelab
