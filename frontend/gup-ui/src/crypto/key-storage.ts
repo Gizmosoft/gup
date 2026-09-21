@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import { deleteSecureItem, getSecureItem, setSecureItem } from '@/lib/secure-storage';
 
 import { base64ToBytes, bytesToBase64 } from './encoding';
 import {
@@ -42,11 +42,11 @@ export type LocalIdentity = {
 };
 
 async function setItem(key: string, value: string): Promise<void> {
-  await SecureStore.setItemAsync(key, value);
+  await setSecureItem(key, value);
 }
 
 async function getItem(key: string): Promise<string | null> {
-  return SecureStore.getItemAsync(key);
+  return getSecureItem(key);
 }
 
 export async function hasLocalIdentity(): Promise<boolean> {
@@ -215,11 +215,11 @@ export async function generateAdditionalOneTimePreKeys(
 }
 
 export async function clearLocalSignalKeys(): Promise<void> {
-  await SecureStore.deleteItemAsync(IDENTITY_PUBLIC);
-  await SecureStore.deleteItemAsync(IDENTITY_PRIVATE);
-  await SecureStore.deleteItemAsync(REGISTRATION_ID);
-  await SecureStore.deleteItemAsync(SIGNED_PREKEY);
-  await SecureStore.deleteItemAsync(ONETIME_PREKEYS);
-  await SecureStore.deleteItemAsync(NEXT_OTPK_ID);
-  await SecureStore.deleteItemAsync(NEXT_SPK_ID);
+  await deleteSecureItem(IDENTITY_PUBLIC);
+  await deleteSecureItem(IDENTITY_PRIVATE);
+  await deleteSecureItem(REGISTRATION_ID);
+  await deleteSecureItem(SIGNED_PREKEY);
+  await deleteSecureItem(ONETIME_PREKEYS);
+  await deleteSecureItem(NEXT_OTPK_ID);
+  await deleteSecureItem(NEXT_SPK_ID);
 }
