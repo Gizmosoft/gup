@@ -21,6 +21,7 @@ export const API_PATHS = {
     signedPreKey: '/api/keys/signed-prekey',
     onetime: '/api/keys/onetime',
     status: '/api/keys/status',
+    identity: (userId: number) => `/api/keys/identity/${userId}`,
   },
   attachments: {
     intent: '/api/attachments/intent',

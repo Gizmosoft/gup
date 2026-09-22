@@ -13,6 +13,7 @@ import uk.deadcatlab.bakbak.dto.request.ReplenishOneTimePreKeysRequest;
 import uk.deadcatlab.bakbak.dto.request.RotateSignedPreKeyRequest;
 import uk.deadcatlab.bakbak.dto.response.KeyStatusResponse;
 import uk.deadcatlab.bakbak.dto.response.PreKeyBundleResponse;
+import uk.deadcatlab.bakbak.dto.response.PublishedIdentityResponse;
 import uk.deadcatlab.bakbak.exception.ResourceNotFoundException;
 import uk.deadcatlab.bakbak.model.OneTimePreKey;
 import uk.deadcatlab.bakbak.model.SignedPreKey;
@@ -58,13 +59,7 @@ public class SignalKeyService {
 		identityKeyRepository.save(identity);
 
 		PublishKeysRequest.SignedPreKeyUpload spk = request.signedPreKey();
-		signedPreKeyRepository.save(SignedPreKey.builder()
-			.userId(userId)
-			.keyId(spk.keyId())
-			.publicKey(spk.publicKey())
-			.signature(spk.signature())
-			.createdAt(Instant.now())
-			.build());
+		upsertSignedPreKey(userId, spk.keyId(), spk.publicKey(), spk.signature());
 
 		upsertOneTimePreKeys(userId, request.oneTimePreKeys());
 	}
@@ -75,13 +70,7 @@ public class SignalKeyService {
 		if (identityKeyRepository.findByUserId(userId).isEmpty()) {
 			throw new ResourceNotFoundException("Identity keys not published");
 		}
-		signedPreKeyRepository.save(SignedPreKey.builder()
-			.userId(userId)
-			.keyId(request.keyId())
-			.publicKey(request.publicKey())
-			.signature(request.signature())
-			.createdAt(Instant.now())
-			.build());
+		upsertSignedPreKey(userId, request.keyId(), request.publicKey(), request.signature());
 	}
 
 	@Transactional
@@ -135,6 +124,34 @@ public class SignalKeyService {
 			.orElse(null);
 		long remaining = oneTimePreKeyRepository.countByUserIdAndConsumedAtIsNull(userId);
 		return new KeyStatusResponse(true, identity.get().getRegistrationId(), remaining, signedPreKeyId);
+	}
+
+	@Transactional(readOnly = true)
+	public PublishedIdentityResponse getPublishedIdentity(Long userId) {
+		UserIdentityKey identity = identityKeyRepository.findByUserId(userId)
+			.orElseThrow(() -> new ResourceNotFoundException("User has no published keys"));
+		return new PublishedIdentityResponse(
+			userId,
+			identity.getRegistrationId(),
+			identity.getIdentityKeyPublic()
+		);
+	}
+
+	private void upsertSignedPreKey(Long userId, Integer keyId, String publicKey, String signature) {
+		SignedPreKey existing = signedPreKeyRepository.findByUserIdAndKeyId(userId, keyId).orElse(null);
+		if (existing != null) {
+			existing.setPublicKey(publicKey);
+			existing.setSignature(signature);
+			signedPreKeyRepository.save(existing);
+			return;
+		}
+		signedPreKeyRepository.save(SignedPreKey.builder()
+			.userId(userId)
+			.keyId(keyId)
+			.publicKey(publicKey)
+			.signature(signature)
+			.createdAt(Instant.now())
+			.build());
 	}
 
 	private void upsertOneTimePreKeys(Long userId, List<PublishKeysRequest.OneTimePreKeyUpload> uploads) {

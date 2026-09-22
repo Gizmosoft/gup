@@ -61,7 +61,15 @@ export default function SearchScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
+          <Pressable
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/' as Href);
+              }
+            }}
+          >
             <Text style={styles.backText}>Back</Text>
           </Pressable>
           <Text style={styles.title}>Find people</Text>

@@ -16,6 +16,7 @@ import uk.deadcatlab.bakbak.dto.request.ReplenishOneTimePreKeysRequest;
 import uk.deadcatlab.bakbak.dto.request.RotateSignedPreKeyRequest;
 import uk.deadcatlab.bakbak.dto.response.KeyStatusResponse;
 import uk.deadcatlab.bakbak.dto.response.PreKeyBundleResponse;
+import uk.deadcatlab.bakbak.dto.response.PublishedIdentityResponse;
 import uk.deadcatlab.bakbak.service.SignalKeyService;
 import uk.deadcatlab.bakbak.service.UserService;
 
@@ -45,6 +46,15 @@ public class KeyController {
 	public PreKeyBundleResponse getBundle(@PathVariable Long userId, Authentication authentication) {
 		ControllerAuthSupport.requireCurrentUserId(authentication, userService);
 		return signalKeyService.getBundle(userId);
+	}
+
+	@GetMapping("/identity/{userId}")
+	public PublishedIdentityResponse getPublishedIdentity(
+		@PathVariable Long userId,
+		Authentication authentication
+	) {
+		ControllerAuthSupport.requireCurrentUserId(authentication, userService);
+		return signalKeyService.getPublishedIdentity(userId);
 	}
 
 	@PostMapping("/signed-prekey")

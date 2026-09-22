@@ -126,9 +126,33 @@ class SignalKeyServiceTest {
 	}
 
 	@Test
+	void getPublishedIdentity_returnsIdentityWithoutConsumingOtpk() {
+		when(identityKeyRepository.findByUserId(2L)).thenReturn(Optional.of(UserIdentityKey.builder()
+			.userId(2L)
+			.registrationId(9)
+			.identityKeyPublic("ik")
+			.build()));
+
+		var published = signalKeyService.getPublishedIdentity(2L);
+
+		assertThat(published.userId()).isEqualTo(2L);
+		assertThat(published.registrationId()).isEqualTo(9);
+		assertThat(published.identityKey()).isEqualTo("ik");
+		verify(oneTimePreKeyRepository, never()).findNextAvailable(any());
+		verify(oneTimePreKeyRepository, never()).markConsumed(any(), any(), any());
+	}
+
+	@Test
 	void getBundle_throwsWhenIdentityMissing() {
 		when(identityKeyRepository.findByUserId(99L)).thenReturn(Optional.empty());
 		assertThatThrownBy(() -> signalKeyService.getBundle(99L))
+			.isInstanceOf(ResourceNotFoundException.class);
+	}
+
+	@Test
+	void getPublishedIdentity_throwsWhenIdentityMissing() {
+		when(identityKeyRepository.findByUserId(99L)).thenReturn(Optional.empty());
+		assertThatThrownBy(() -> signalKeyService.getPublishedIdentity(99L))
 			.isInstanceOf(ResourceNotFoundException.class);
 	}
 }

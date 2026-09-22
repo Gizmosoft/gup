@@ -13,8 +13,8 @@ import { login as loginApi, register as registerApi } from '@/api/auth.api';
 import { setTokenGetter, setUnauthorizedHandler } from '@/api/client';
 import { getCurrentUser } from '@/api/users.api';
 import { bootstrapLocalStore } from '@/db/sync/bootstrap';
-import { clearAuthToken, getAuthToken, setAuthToken } from '@/lib/token-storage';
-import { clearStoredDrafts } from '@/lib/draft-storage';
+import { clearAllLocalClientState } from '@/lib/clear-local-state';
+import { getAuthToken, setAuthToken } from '@/lib/token-storage';
 import { useDatabaseContext } from '@/providers/DatabaseProvider';
 import { queryClient } from '@/providers/QueryProvider';
 import type { LoginRequest, RegisterRequest } from '@/types';
@@ -48,8 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
     setIsStoreReady(false);
-    await clearAuthToken();
-    await clearStoredDrafts();
+    await clearAllLocalClientState();
   }, []);
 
   const applySession = useCallback((nextToken: string, nextUser: UserResponse) => {

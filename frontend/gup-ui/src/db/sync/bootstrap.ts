@@ -1,6 +1,7 @@
 import { listConversations } from '@/api/conversations.api';
 import { listPendingInbox } from '@/api/inbox.api';
 import { decryptFromPeer, ensureKeysPublished } from '@/crypto';
+import { reconcileLocalStateForUser } from '@/lib/clear-local-state';
 import * as conversationRepository from '@/db/repositories/conversation.repository';
 import * as messageRepository from '@/db/repositories/message.repository';
 import { syncConversationsFromServer } from '@/db/sync/conversation-sync';
@@ -77,9 +78,10 @@ export async function resyncPendingInbox(recipientUserId: number): Promise<void>
 
 /** Seeds SQLite from the server after login or session restore. */
 export async function bootstrapLocalStore(recipientUserId: number): Promise<void> {
+  await reconcileLocalStateForUser(recipientUserId);
   await resyncConversationsFromServer();
   // Identity must exist before decrypting SIGNAL_V1 pending rows.
-  await ensureKeysPublished();
+  await ensureKeysPublished(recipientUserId);
   await resyncPendingInbox(recipientUserId);
 }
 

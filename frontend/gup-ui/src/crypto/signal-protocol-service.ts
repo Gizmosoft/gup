@@ -1,6 +1,7 @@
 import {
   fetchKeyStatus,
   fetchPreKeyBundle,
+  fetchPublishedIdentity,
   publishKeys,
   replenishOneTimePreKeys,
   type PreKeyBundleDto,
@@ -14,7 +15,10 @@ import {
   generateAndStoreIdentity,
   hasLocalIdentity,
   loadLocalIdentity,
+  loadOneTimePreKeys,
   removeOneTimePreKey,
+  setIdentityOwnerUserId,
+  setNextOtpkId,
   type LocalIdentity,
 } from './key-storage';
 import {
@@ -27,6 +31,7 @@ import {
   parseWireMessage,
   serializeSession,
   type SessionRecord,
+  type SignalWireMessage,
 } from './session-cipher';
 import type { PreKeyBundle } from './x3dh';
 
@@ -80,34 +85,46 @@ async function assertTrustedIdentity(peerUserId: number, identityKey: Uint8Array
   }
 }
 
+async function publishLocalIdentity(identity: LocalIdentity): Promise<void> {
+  await publishKeys({
+    registrationId: identity.registrationId,
+    identityKey: bytesToBase64(identity.identity.publicKey),
+    signedPreKey: {
+      keyId: identity.signedPreKey.keyId,
+      publicKey: bytesToBase64(identity.signedPreKey.keyPair.publicKey),
+      signature: bytesToBase64(identity.signedPreKey.signature),
+    },
+    oneTimePreKeys: identity.oneTimePreKeys.map((k) => ({
+      keyId: k.keyId,
+      publicKey: bytesToBase64(k.keyPair.publicKey),
+    })),
+  });
+}
+
 /**
  * Ensures local identity exists and is published to the server.
  */
-export async function ensureKeysPublished(): Promise<void> {
+export async function ensureKeysPublished(userId: number): Promise<void> {
   let identity = await loadLocalIdentity();
   if (!identity) {
     identity = await generateAndStoreIdentity(100);
   }
 
   const status = await fetchKeyStatus();
-  if (!status.published) {
-    await publishKeys({
-      registrationId: identity.registrationId,
-      identityKey: bytesToBase64(identity.identity.publicKey),
-      signedPreKey: {
-        keyId: identity.signedPreKey.keyId,
-        publicKey: bytesToBase64(identity.signedPreKey.keyPair.publicKey),
-        signature: bytesToBase64(identity.signedPreKey.signature),
-      },
-      oneTimePreKeys: identity.oneTimePreKeys.map((k) => ({
-        keyId: k.keyId,
-        publicKey: bytesToBase64(k.keyPair.publicKey),
-      })),
-    });
-    return;
+  const localKeysMatchServer =
+    status.published && status.registrationId === identity.registrationId;
+
+  if (!localKeysMatchServer) {
+    await publishLocalIdentity(identity);
   }
 
-  if (status.oneTimePreKeysRemaining < OTPK_REPLENISH_THRESHOLD) {
+  await setIdentityOwnerUserId(userId);
+
+  const localOtpks = (await loadOneTimePreKeys()).length;
+  if (
+    localOtpks < OTPK_REPLENISH_THRESHOLD ||
+    (localKeysMatchServer && status.oneTimePreKeysRemaining < OTPK_REPLENISH_THRESHOLD)
+  ) {
     await replenishOneTimePreKeysIfNeeded();
   }
 }
@@ -117,8 +134,16 @@ export async function replenishOneTimePreKeysIfNeeded(): Promise<void> {
     return;
   }
   const status = await fetchKeyStatus();
-  if (!status.published || status.oneTimePreKeysRemaining >= OTPK_REPLENISH_THRESHOLD) {
+  if (!status.published) {
     return;
+  }
+  const localCount = (await loadOneTimePreKeys()).length;
+  if (status.oneTimePreKeysRemaining >= OTPK_REPLENISH_THRESHOLD && localCount >= OTPK_REPLENISH_THRESHOLD) {
+    return;
+  }
+
+  if (localCount === 0) {
+    await setNextOtpkId(1);
   }
 
   const created = await generateAdditionalOneTimePreKeys(OTPK_REPLENISH_BATCH);
@@ -136,6 +161,22 @@ export async function replenishOneTimePreKeysIfNeeded(): Promise<void> {
 export async function encryptForPeer(peerUserId: number, plaintext: string): Promise<string> {
   const local = await requireLocalIdentity();
   let session = await loadSession(peerUserId);
+
+  if (session) {
+    try {
+      const published = await fetchPublishedIdentity(peerUserId);
+      if (published.identityKey !== bytesToBase64(session.remoteIdentityKey)) {
+        console.warn('Peer identity changed; resetting Signal session', peerUserId);
+        await resetSessionWithPeer(peerUserId);
+        session = null;
+      }
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        throw new PeerKeysMissingError(peerUserId);
+      }
+      throw error;
+    }
+  }
 
   if (!session) {
     let bundleDto: PreKeyBundleDto;
@@ -165,49 +206,69 @@ export async function encryptForPeer(peerUserId: number, plaintext: string): Pro
   return ciphertext;
 }
 
+async function establishInboundPreKeySession(
+  peerUserId: number,
+  local: LocalIdentity,
+  wire: SignalWireMessage,
+  ciphertext: string
+): Promise<string> {
+  if (wire.t !== 'prekey' || !wire.ik || !wire.spkId) {
+    throw new SignalCryptoError('No session and message is not a PreKey message');
+  }
+
+  await assertTrustedIdentity(peerUserId, base64ToBytes(wire.ik));
+
+  if (wire.spkId !== local.signedPreKey.keyId) {
+    throw new SignalCryptoError('Signed prekey id mismatch for inbound PreKey message');
+  }
+
+  const otpk = wire.opkId != null ? await removeOneTimePreKey(wire.opkId) : null;
+  if (wire.opkId != null && otpk == null) {
+    throw new SignalCryptoError(`Missing local one-time prekey ${wire.opkId} for inbound PreKey message`);
+  }
+  const session = createInboundSessionFromPreKey(
+    local.identity,
+    local.registrationId,
+    local.signedPreKey.keyPair,
+    otpk,
+    wire
+  );
+  const plaintext = decryptMessage(session, ciphertext);
+  await persistSession(peerUserId, session);
+  return plaintext;
+}
+
 /**
  * Decrypts an inbound SIGNAL_V1 payload from a peer.
  */
 export async function decryptFromPeer(peerUserId: number, ciphertext: string): Promise<string> {
   const local = await requireLocalIdentity();
   const wire = parseWireMessage(ciphertext);
-  let session = await loadSession(peerUserId);
+  const session = await loadSession(peerUserId);
 
-  if (!session) {
-    if (wire.t !== 'prekey' || !wire.ik || !wire.spkId) {
-      throw new SignalCryptoError('No session and message is not a PreKey message');
+  if (session) {
+    try {
+      if (wire.ik) {
+        await assertTrustedIdentity(peerUserId, base64ToBytes(wire.ik));
+      } else {
+        await assertTrustedIdentity(peerUserId, session.remoteIdentityKey);
+      }
+      const plaintext = decryptMessage(session, ciphertext);
+      await persistSession(peerUserId, session);
+      return plaintext;
+    } catch (error) {
+      if (wire.t === 'prekey') {
+        console.warn('Rebuilding Signal session from inbound PreKey', peerUserId, error);
+        await resetSessionWithPeer(peerUserId);
+      } else {
+        console.warn('Dropping stale Signal session after decrypt failure', peerUserId, error);
+        await resetSessionWithPeer(peerUserId);
+        throw error;
+      }
     }
-
-    await assertTrustedIdentity(peerUserId, base64ToBytes(wire.ik));
-
-    if (wire.spkId !== local.signedPreKey.keyId) {
-      throw new SignalCryptoError('Signed prekey id mismatch for inbound PreKey message');
-    }
-
-    const otpk =
-      wire.opkId != null ? await removeOneTimePreKey(wire.opkId) : null;
-
-    session = createInboundSessionFromPreKey(
-      local.identity,
-      local.registrationId,
-      local.signedPreKey.keyPair,
-      otpk,
-      wire
-    );
-    const plaintext = decryptMessage(session, ciphertext);
-    await persistSession(peerUserId, session);
-    return plaintext;
   }
 
-  if (wire.ik) {
-    await assertTrustedIdentity(peerUserId, base64ToBytes(wire.ik));
-  } else {
-    await assertTrustedIdentity(peerUserId, session.remoteIdentityKey);
-  }
-
-  const plaintext = decryptMessage(session, ciphertext);
-  await persistSession(peerUserId, session);
-  return plaintext;
+  return establishInboundPreKeySession(peerUserId, local, wire, ciphertext);
 }
 
 export async function resetSessionWithPeer(peerUserId: number): Promise<void> {

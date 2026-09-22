@@ -30,3 +30,22 @@ export async function deleteSecureItem(key: string): Promise<void> {
 	}
 	await SecureStore.deleteItemAsync(key);
 }
+
+const GUP_STORAGE_PREFIX = 'gup.';
+
+/** Removes every `gup.*` key from web localStorage. No-op on native. */
+export function clearGupWebStorage(): void {
+	if (Platform.OS !== 'web' || typeof localStorage === 'undefined') {
+		return;
+	}
+	const keys: string[] = [];
+	for (let i = 0; i < localStorage.length; i++) {
+		const key = localStorage.key(i);
+		if (key?.startsWith(GUP_STORAGE_PREFIX)) {
+			keys.push(key);
+		}
+	}
+	for (const key of keys) {
+		localStorage.removeItem(key);
+	}
+}

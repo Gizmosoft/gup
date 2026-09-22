@@ -27,6 +27,12 @@ export type KeyStatusDto = {
   currentSignedPreKeyId: number | null;
 };
 
+export type PublishedIdentityDto = {
+  userId: number;
+  registrationId: number;
+  identityKey: string;
+};
+
 export type PublishKeysBody = {
   registrationId: number;
   identityKey: string;
@@ -56,4 +62,8 @@ export async function replenishOneTimePreKeys(
 
 export async function fetchKeyStatus(): Promise<KeyStatusDto> {
   return apiRequest<KeyStatusDto>(API_PATHS.keys.status);
+}
+
+export async function fetchPublishedIdentity(userId: number): Promise<PublishedIdentityDto> {
+  return apiRequest<PublishedIdentityDto>(API_PATHS.keys.identity(userId));
 }

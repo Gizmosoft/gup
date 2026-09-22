@@ -55,3 +55,19 @@ export async function getFirstAsync<T>(
 ): Promise<T | null> {
   return getDatabase().getFirstAsync<T>(sql, params);
 }
+
+/** Deletes all local rows so the next account does not inherit sessions or history. */
+export async function wipeLocalDatabase(): Promise<void> {
+  if (!dbInstance) {
+    return;
+  }
+  await runSerialized(async () => {
+    await dbInstance!.execAsync(`
+      DELETE FROM messages;
+      DELETE FROM conversations;
+      DELETE FROM outbox_pending;
+      DELETE FROM signal_sessions;
+      DELETE FROM signal_identity_peers;
+    `);
+  });
+}
